@@ -86,8 +86,8 @@ Notion-Analyzer/
 
 ## 👩‍💻 Author
 
-Alyssa Fedgo
+Alyssa Fedgo, 
 Lead Data Engineer
-[LinkedIn Profile)(https://www.linkedin.com/in/alyssa-fedgo-mph/)
+[LinkedIn Profile](https://www.linkedin.com/in/alyssa-fedgo-mph/)
 
 
