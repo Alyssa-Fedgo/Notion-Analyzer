@@ -37,11 +37,11 @@ A Python tool that pulls your daily journal entries from Notion and structures t
 
 ## 📦 Installation
 
-```bash
+
 git clone https://github.com/Alyssa-Fedgo/Notion-Analyzer.git
 cd Notion-Analyzer
 pip install -r requirements.txt
----
+
 
 ## 🔐 Notion Setup
 
