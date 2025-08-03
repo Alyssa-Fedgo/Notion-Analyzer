@@ -88,6 +88,6 @@ Notion-Analyzer/
 
 Alyssa Fedgo
 Lead Data Engineer
-📫 LinkedIn Profile
-🔗 GitHub Repo
+[LinkedIn Profile)(https://www.linkedin.com/in/alyssa-fedgo-mph/)
+
 
