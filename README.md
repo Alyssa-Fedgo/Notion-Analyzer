@@ -37,11 +37,11 @@ A Python tool that pulls your daily journal entries from Notion and structures t
 
 ## 📦 Installation
 
-'''bash
+```bash
 git clone https://github.com/Alyssa-Fedgo/Notion-Analyzer.git
 cd Notion-Analyzer
 pip install -r requirements.txt
-'''
+```
 
 ## 🔐 Notion Setup
 
@@ -50,15 +50,15 @@ pip install -r requirements.txt
 3. Share your journal pages or database with that integration
 4. Set your token in the terminal session:
 
-'''
+```
 export NOTION_TOKEN="your-secret-token"
 
-'''
+```
 ## 🚀 Usage
 
-'''
+```
 python notionapi.py
-'''
+```
 After running, you'll get:
 
 - journal_output.csv — a CSV file with one row per day and structured columns
@@ -70,14 +70,14 @@ After running, you'll get:
 | abc123   | I learned to stay calm... | Today I'm grateful for my health. | Today I intend to be more patient | To make today a good day I would... | Today I'm grateful for... Today I intend to... To make today a good day... I learned... |
 
 ## 📂 Project Structure
-'''
+```
 Notion-Analyzer/
 │
 ├── notionapi.py          # Main logic
 ├── requirements.txt      # Required Python packages
 ├── README.md             # Project documentation
 └── journal_output.csv    # Output (generated after running)
-'''
+```
 ## 🧠 Future Enhancements
 
 - Add NLP sentiment or topic modeling
