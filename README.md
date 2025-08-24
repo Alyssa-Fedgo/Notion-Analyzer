@@ -66,11 +66,15 @@ export NOTION_TOKEN="your-secret-token"
 ## 📂 Project Structure
 ```
 Notion-Analyzer/
-│
-├── notionapi.py          # Main logic
-├── requirements.txt      # Required Python packages
-├── README.md             # Project documentation
-└── journal_output.csv    # Output (generated after running)
+├── dags/
+│   └── run_notion_analysis.py
+├── docker/
+│   ├── Dockerfile
+│   └── docker-compose.yml
+├── notionapi.py
+├── requirements.txt
+└── README.md
+
 ```
 ## 🧠 Future Enhancements
 
