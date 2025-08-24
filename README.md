@@ -1,7 +1,7 @@
 
 # 🧠 Notion Analyzer: Mood Journal Insights
 
-A Python tool that pulls your daily journal entries from Notion and structures them into a clean dataset for reflection and analysis. Designed to help identify personal patterns, enhance self-awareness, and support mental clarity using your own writing.
+A Python tool that pulls your daily journal entries from Notion and structures them for reflection and analysis. Now orchestrated with Apache Airflow, it automatically updates your Notion page with insights from your entries, helping you identify patterns, enhance self-awareness, and support mental clarity using your own writing.
 
 ---
 
@@ -14,8 +14,8 @@ A Python tool that pulls your daily journal entries from Notion and structures t
   - **Grateful**
   - **Intentions**
   - **Focus**
-- Outputs a formatted CSV that's easy to read, analyze, or visualize
 - Adds sentence framing for each section for better NLP and readability
+- Automatically updates a Notion page with structured insights
 
 ---
 
@@ -23,13 +23,14 @@ A Python tool that pulls your daily journal entries from Notion and structures t
 
 - Analyze themes in your daily reflections
 - Track what influences your mood or productivity
-- Use with AI tools, Power BI, or Jupyter Notebooks for deeper insight
+- Use with AI tools or visualization libraries for deeper insight
 
 ---
 
 ## 🛠️ Requirements
 
 - Python 3.8 or higher
+- Apache Airflow (scheduler must be running to execute DAGs)
 - Notion Integration Token
 - Notion journal pages formatted with headers (e.g., `Grateful`, `Intentions`, etc.)
 
@@ -54,20 +55,13 @@ pip install -r requirements.txt
 export NOTION_TOKEN="your-secret-token"
 
 ```
-## 🚀 Usage
-
-```
-python notionapi.py
-```
-After running, you'll get:
-
-- journal_output.csv — a CSV file with one row per day and structured columns
-
-## 📊 Sample Output
-
-| page\_id | Summary                   | Grateful                          | Intentions                        | Focus                               | Total                                                                                   |
-| -------- | ------------------------- | --------------------------------- | --------------------------------- | ----------------------------------- | --------------------------------------------------------------------------------------- |
-| abc123   | I learned to stay calm... | Today I'm grateful for my health. | Today I intend to be more patient | To make today a good day I would... | Today I'm grateful for... Today I intend to... To make today a good day... I learned... |
+## 🚀 Usage via Airflow
+1. Ensure Airflow scheduler is running and your DAG is deployed in the /dags folder
+2. Trigger the DAG from the Airflow UI or CLI
+3. After running, your Notion page will be updated with:
+   - frequency of negative days
+   - Common words
+   - Correlation of words with polarity score
 
 ## 📂 Project Structure
 ```
@@ -80,9 +74,9 @@ Notion-Analyzer/
 ```
 ## 🧠 Future Enhancements
 
-- Add NLP sentiment or topic modeling
+- Improve NLP sentiment and topic modeling
 - Integrate with visualization libraries
-- Sync with calendar
+
 
 ## 👩‍💻 Author
 
