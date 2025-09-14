@@ -1,4 +1,3 @@
-
 ##############################################################################
 ### Program:     notionapi.py
 ### Developer:   Alyssa Fedgo
@@ -14,13 +13,29 @@ import requests
 import pandas as pd
 from functools import reduce
 from nltk.tokenize import word_tokenize
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import wordnet
 import nltk
+import spacy
+from dotenv import load_dotenv
 from nltk.corpus import stopwords
+from nltk import pos_tag
 from nltk.sentiment import SentimentIntensityAnalyzer
 import numpy as np
 from scipy.stats import pearsonr
 from datetime import date
 
+nltk_data_dir = "/opt/airflow/nltk_data"
+os.makedirs(nltk_data_dir, exist_ok=True)
+
+# Make sure Airflow user can write
+os.chmod(nltk_data_dir, 0o777)
+nltk.data.path.append(nltk_data_dir)
+
+load_dotenv()
+
+# Load spaCy English model
+nlp = spacy.load("en_core_web_sm")
 
 # Download stopwords
 def safe_nltk_download(pkg: str):
@@ -29,14 +44,21 @@ def safe_nltk_download(pkg: str):
     try:
         nltk.data.find(pkg)
     except LookupError:
-        nltk.download(pkg.split("/")[-1])
+        nltk.download(pkg.split("/")[-1], download_dir=nltk_data_dir)
 
 safe_nltk_download("corpora/stopwords")
-safe_nltk_download("tokenizers/punkt")
+safe_nltk_download("tokenizers/punkt_tab")
 safe_nltk_download("sentiment/vader_lexicon")
+safe_nltk_download("vader_lexicon")
+safe_nltk_download("wordnet")
+safe_nltk_download("omw-1.4")
+safe_nltk_download("averaged_perceptron_tagger_eng")
+
+
 STOPWORDS = set(nltk.corpus.stopwords.words("english"))
 
 
+lemmatizer = WordNetLemmatizer()
 sia = SentimentIntensityAnalyzer()
 print('Downloaded stopwords')
 
@@ -122,7 +144,7 @@ def extract_blocks(PAGE_IDS:list)->list:
     print('Returned blocks')
     return pd.DataFrame(rows)
    
-def classify_sections(df:pd.DataFrame)->pd.DataFrame:
+def classify_sections(df:pd.DataFrame)->list:
     """ Input: Dataframe
         Output: List
         Purpose: Categorize each row as having information for either summary, grateful, focus, or intenions
@@ -134,16 +156,15 @@ def classify_sections(df:pd.DataFrame)->pd.DataFrame:
         category = section.iloc[0]['value'].lower()
         content_df = section[~section['type'].str.contains('heading')].groupby('page_id')['value'].agg(', '.join).reset_index()
 
-        if 'learn' in category:
-            content_df.rename(columns={'value': 'Summary'}, inplace=True)
-        elif 'grateful' in category:
+        if 'grateful' in category:
             content_df.rename(columns={'value': 'Grateful'}, inplace=True)
         elif 'intention' in category:
             content_df.rename(columns={'value': 'Intentions'}, inplace=True)
         elif 'day' in category:
             content_df.rename(columns={'value': 'Focus'}, inplace=True)
         else:
-            continue
+            content_df.rename(columns={'value': 'Summary'}, inplace=True)
+           # continue
 
         sections.append(content_df)
     print('Clasiified row types')
@@ -165,9 +186,23 @@ def format_output(df:pd.DataFrame)->pd.DataFrame:
     df['Grateful'] = "Today I'm grateful for " + df['Grateful']
     df['Intentions'] = "Today I intend to " + df['Intentions']
     df['Focus'] = "To make today a good day I would like to focus on " + df['Focus']
-    df['Total'] = df['Grateful'] + " " + df['Intentions'] + " " + df['Focus'] + " " + df['Summary']
+    df['Total'] = df['Grateful'] + ". " + df['Intentions'] + ". " + df['Focus'] + ". " + df['Summary']
     print('Cleaned up columns')
     return df
+
+
+def get_wordnet_pos(tag):
+    """ Map NLTK POS tags to WordNet POS tags"""
+    if tag.startswith('J'):
+        return wordnet.ADJ
+    elif tag.startswith('V'):
+        return wordnet.VERB
+    elif tag.startswith('N'):
+        return wordnet.NOUN
+    elif tag.startswith('R'):
+        return wordnet.ADV
+    else:
+        return wordnet.NOUN
 
 def process_words(word_list:list)->list:
     """ Input: list of words
@@ -177,6 +212,14 @@ def process_words(word_list:list)->list:
     
     return [str(word).lower() for word in word_list if ((str(word).isalpha()) & (str(word).lower() not in STOPWORDS))]
 
+def lemma_words(word_list:list)-> list:
+    pos_tags = pos_tag(word_list)
+
+    # Lemmatize with POS tags
+    lemmatized_sentence = [
+        lemmatizer.lemmatize(word, get_wordnet_pos(tag)) for word, tag in pos_tags
+    ]
+    return lemmatized_sentence
 
 def nlp_prep(df:pd.DataFrame)->pd.DataFrame:
     """ Input: df
@@ -186,6 +229,7 @@ def nlp_prep(df:pd.DataFrame)->pd.DataFrame:
     # Apply word_tokenize to the 'text' column
     df['tokenized'] = df['Total'].astype(str).apply(word_tokenize)
     df['tokenized'] = df['tokenized'].apply(process_words)
+    df['tokenized'] = df['tokenized'].apply(lemma_words)
     print('Completed nlp prep')
     return df
 
@@ -209,34 +253,75 @@ def polarity(df:pd.DataFrame)->pd.DataFrame:
     print('Return polarity')
     return df
 
-def correlation_on_wordfreq(df:pd.DataFrame)->pd.DataFrame:
-    results = []
-    # Step 1 — Get unique words 
-    all_words = sorted(set(word for tokens in df['word_list'] for word in tokens)) 
-    all_words = list(set(all_words))
+def get_top_contributors(tokens, top_n=10):
+    """Get the top 10 words per polarity score"""
+    # Score each token individually
+    token_scores = [(word, sia.polarity_scores(word)['compound']) for word in tokens]
+    # Sort by absolute score
+    token_scores = sorted(token_scores, key=lambda x: abs(x[1]), reverse=True)
+    # Keep only top N with non-zero contribution
+    top_tokens = [(w, s) for w, s in token_scores if s != 0][:top_n]
+    return top_tokens
 
-    # Step 2 — Create binary indicator columns 
-    for word in all_words: 
-        df[word] = df['word_list'].apply(lambda tokens: int(word in tokens))
+def find_related_words(text, contributors):
+    # Handle missing or non-string text
+    if not isinstance(text, str) or not text.strip():
+        return []
 
-    for word in set(word for tokens in df['word_list'] for word in tokens):
-        try:
-            r, p = pearsonr(df[word], df['polarity'])
-            results.append({"word": word, "correlation": r, "p_value": p})
-        except Exception:
+    doc = nlp(text)
+    related_pairs = []
+
+    for word, score in contributors:
+        # Find matching token in spaCy parse
+        matches = [t for t in doc if t.text.lower() == word.lower()]
+        if not matches:
             continue
+        token = matches[0]
 
-    sig_results = (
-        pd.DataFrame(results)
-        .query("p_value < 0.05")
-        .sort_values("correlation", key=lambda x: abs(x), ascending=False)
-    )
-    return sig_results
+        related = []
+
+        # Parent (head) if it's a noun
+        if token.head != token and token.head.pos_ in ["NOUN", "PROPN"]:
+            related.append(token.head.text)
+
+        # Children if they are nouns
+        for child in token.children:
+            if child.pos_ in ["NOUN", "PROPN"]:
+                related.append(child.text)
+
+        if related:  # only keep if we actually found a noun target
+            related_pairs.append({
+                "word": token.text,
+                "score": score,
+                "related_nouns": list(set(related))  # deduplicate
+            })
+
+    return related_pairs
+
+def output_related_words(df:pd.DataFrame):
+    related_words= df['contributors_with_related'].tolist()
+    words = {'positive':set(),
+             'negative':set()}
+    for l in related_words:
+        if l != []:
+            for d in l:
+                if d['score']>0:
+                    direction = 'positive'
+                else:
+                    direction='negative'
+                for noun in d['related_nouns']:
+                    if noun not in ['Today', 'things', 'tomorrow', 'way', 'start', 'thing', 'instances']:
+                        if direction == 'positive':
+                            words['positive'].add(noun)
+                        else:
+                            words['negative'].add(noun)
+
+    return words
 
 def summary(df:pd.DataFrame)->str:
     """find frequency of negative days"""
     results = df.groupby('polarity_cat').size().reset_index(name='count')
-    neg = results.loc[results['polarity_cat'] == 'Negative', 'count'].iloc[0]
+    neg = results.loc[results['polarity_cat'] == 'Negative', 'count'].sum()
     total = len(df)
     perc = (neg/total)*100
     return f'{neg} out of {total} days were negative. This means {round(perc,2)}% of days were negative'
@@ -293,27 +378,28 @@ def main():
         all_page_ids = get_all_page_ids()
         #retreive text on journal entries
         block_df = extract_blocks(all_page_ids)
-        block_df.to_csv('testing.csv')
         sections = classify_sections(block_df)
         if not sections:
             print("No journal sections found.")
 
         merged = merge_sections(sections)
-        merged.to_csv('merged.csv')
         formatted = format_output(merged)
         nlp_prepped = nlp_prep(formatted)
         word_freq = word_frequency(nlp_prepped)
         polarity_score = polarity(word_freq)
+        # Apply function to dataframe
+        polarity_score["top_contributors"] = polarity_score["tokenized"].apply(lambda x: get_top_contributors(x, top_n=10))
+        polarity_score["contributors_with_related"] = polarity_score.apply(
+            lambda row: find_related_words(row["Total"], row["top_contributors"]),
+            axis=1
+        )
         polarity_score.to_csv('journal_output.csv', index=False)
-        neg_words = polarity_score[polarity_score['polarity']<0][['word_frequency']]
-        neg_words_txt = neg_words.to_string()
         print('Output to CSV')
-        corr_df = correlation_on_wordfreq(polarity_score)
-        corr_df.to_csv('journal_corr.csv', index=False)
-        corr_txt = corr_df.to_string()
-        print('Output to CSV')
+        related_words = output_related_words(polarity_score)
+        positive = f'Positive factors in my life include {", ".join(related_words["positive"])}'
+        negative = f'Negative factors in my life include {", ".join(related_words["negative"])}'
         freq = summary(polarity_score)
-        add_page_to_database('Results of NLP', freq, corr_txt, neg_words_txt)
+        add_page_to_database('Results of NLP', freq, positive, negative)
     except Exception as e:
         print(f'{e}')
     
