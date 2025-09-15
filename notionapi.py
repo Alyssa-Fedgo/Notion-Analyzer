@@ -24,6 +24,7 @@ from nltk.sentiment import SentimentIntensityAnalyzer
 import numpy as np
 from scipy.stats import pearsonr
 from datetime import date
+import matplotlib.pyplot as plt
 
 nltk_data_dir = "/opt/airflow/nltk_data"
 os.makedirs(nltk_data_dir, exist_ok=True)
@@ -249,7 +250,7 @@ def polarity(df:pd.DataFrame)->pd.DataFrame:
        purpose: Determine if journal entry is overall positive or negative
     """
     df['polarity'] = df['tokenized'].apply(lambda tokens: sia.polarity_scores(" ".join(tokens))['compound'])
-    df['polarity_cat'] = np.where(df['polarity'] >0, 'Positive', np.where(df['polarity'] ==0,'NA','Negative'))
+    df['polarity_cat'] = np.where(df['polarity'] >0.5, 'Positive', 'Negative')
     print('Return polarity')
     return df
 
@@ -260,43 +261,54 @@ def get_top_contributors(tokens, top_n=10):
     # Sort by absolute score
     token_scores = sorted(token_scores, key=lambda x: abs(x[1]), reverse=True)
     # Keep only top N with non-zero contribution
-    top_tokens = [(w, s) for w, s in token_scores if s != 0][:top_n]
+    top_tokens = [(w, s) for w, s in token_scores if abs(s) >=.25]
+    #top_tokens = [(w, s) for w, s in token_scores if s != 0][:top_n]
     return top_tokens
 
-def find_related_words(text, contributors):
+def find_subjects(text, contributors):
+
     # Handle missing or non-string text
     if not isinstance(text, str) or not text.strip():
-        return []
-
+        return [] 
+    
     doc = nlp(text)
-    related_pairs = []
+    results = []
 
     for word, score in contributors:
-        # Find matching token in spaCy parse
+        # Find all tokens matching contributor word
         matches = [t for t in doc if t.text.lower() == word.lower()]
-        if not matches:
-            continue
-        token = matches[0]
+        subjects = []
 
-        related = []
+        for token in matches:
+            # 1️ Direct nominal subjects (nsubj)
+            subjects.extend([child.text for child in token.children if child.dep_ in ("nsubj", "nsubjpass")])
 
-        # Parent (head) if it's a noun
-        if token.head != token and token.head.pos_ in ["NOUN", "PROPN"]:
-            related.append(token.head.text)
+            # 2️ Prepositional objects (for adjectives like "grateful for X")
+            for child in token.children:
+                if child.dep_ == "prep":  # preposition
+                    subjects.extend([grandchild.text for grandchild in child.children if grandchild.dep_ == "pobj"])
 
-        # Children if they are nouns
-        for child in token.children:
-            if child.pos_ in ["NOUN", "PROPN"]:
-                related.append(child.text)
+            # 3️ Direct objects (dobj) or object of xcomp
+            subjects.extend([child.text for child in token.children if child.dep_ in ("dobj", "xcomp")])
 
-        if related:  # only keep if we actually found a noun target
-            related_pairs.append({
-                "word": token.text,
-                "score": score,
-                "related_nouns": list(set(related))  # deduplicate
-            })
+            # 4 Climb to head to see if it has prepositional objects
+            head = token.head
+            if head != token:
+                for child in head.children:
+                    if child.dep_ == "prep":
+                        subjects.extend([gc.text for gc in child.children if gc.dep_ == "pobj"])
 
-    return related_pairs
+        # Deduplicate subjects and fallback to "I" if none
+        subjects_clean = list(set(subjects)) if subjects else ["I"]
+
+        results.append({
+            "word": word,
+            "score": score,
+            "subjects": subjects_clean
+        })
+
+    return results
+    
 
 def output_related_words(df:pd.DataFrame):
     related_words= df['contributors_with_related'].tolist()
@@ -305,12 +317,17 @@ def output_related_words(df:pd.DataFrame):
     for l in related_words:
         if l != []:
             for d in l:
-                if d['score']>0:
+                if d['score']>0.35:
                     direction = 'positive'
                 else:
                     direction='negative'
-                for noun in d['related_nouns']:
-                    if noun not in ['Today', 'things', 'tomorrow', 'way', 'start', 'thing', 'instances']:
+                for noun in d['subjects']:
+                    if noun.lower() not in ['get', 'myself', 'me', 'he', 'that', 'you', 'what', 'something',
+                                            'it', 'habit', 'day', 'her', 'someone', 'take', 'them', 'letting',
+                                            'be', 'who', 'do', 'getting', 'average', 'i', 'see', 'have',
+                                            'stuff', 'this', 'any', 'morning', 'us', 'gateway', 'watching',
+                                            'nights', 'night', 'clause', 'caring', 'post', 'days', 'make','pace',
+                                            'speak', 'start']:
                         if direction == 'positive':
                             words['positive'].add(noun)
                         else:
@@ -389,12 +406,23 @@ def main():
         polarity_score = polarity(word_freq)
         # Apply function to dataframe
         polarity_score["top_contributors"] = polarity_score["tokenized"].apply(lambda x: get_top_contributors(x, top_n=10))
+
         polarity_score["contributors_with_related"] = polarity_score.apply(
-            lambda row: find_related_words(row["Total"], row["top_contributors"]),
+            lambda row: find_subjects(row["Total"], row["top_contributors"]),
             axis=1
         )
         polarity_score.to_csv('journal_output.csv', index=False)
         print('Output to CSV')
+
+
+        plt.hist(polarity_score['polarity'], bins=30, edgecolor='black')
+        plt.xlabel('Polarity Score')
+        plt.ylabel('Frequency')
+        plt.title('Histogram of Polarity Scores')
+        plt.grid(axis='y', alpha=0.75)
+        plt.show()
+
+
         related_words = output_related_words(polarity_score)
         positive = f'Positive factors in my life include {", ".join(related_words["positive"])}'
         negative = f'Negative factors in my life include {", ".join(related_words["negative"])}'
